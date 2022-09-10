@@ -1,0 +1,19 @@
+{
+  "name": "pil",
+  "version": "1.0.0",
+  "description": "",
+  "main": "fibonacci.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies" : {
+      "pilcom": "^0.0.17",
+      "pil-stark": "0.0.21"
+  },
+  "devDependencies": {
+    "chai": "^4.3.6",
+    "mocha": "^10.0.0"
+  },
+  "author": "",
+  "license": "ISC"
+}
