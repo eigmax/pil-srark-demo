@@ -1,4 +1,4 @@
-constant %N = 1024;
+constant %N = 16;
 namespace Fibonacci(%N);
     pol constant ISLAST;
 

@@ -5,7 +5,7 @@ const ejs = require("ejs");
 const wasm_tester = require("circom_tester").wasm;
 const { FGL, starkSetup, starkGen, starkVerify } = require("pil-stark");
 const { interpolate } = require("../node_modules/pil-stark/src/fft_p.js");
-const buildMerkleHash = require("../node_modules/pil-stark/src/merklehash_p.js");
+const buildMerkleHashGL = require("../node_modules/pil-stark/src/merklehash_p.js");
 const starkInfoGen = require("../node_modules/pil-stark/src/starkinfo.js");
 const F1Field = require("../node_modules/pil-stark/src/f3g.js");
 const { proof2zkin } = require("../node_modules/pil-stark/src/proof2zkin.js");
@@ -43,30 +43,33 @@ class FibonacciJS {
 }
 
 async function run() {
+
+  // create and compile the trace polynomial
   let pil = await compile(FGL, path.join(__dirname, "fibonacci.pil"));
   let fibjs = new FibonacciJS();
 
   let constPols = newConstantPolsArray(pil);
   await fibjs.buildConstants(constPols.Fibonacci);
-
   let cmPols = newCommitPolsArray(pil);
-  let res2 = await fibjs.execute(cmPols.Fibonacci, [1, 2]);
+  await fibjs.execute(cmPols.Fibonacci, [1, 2]);
 
+  // verify the input and trace constraints
   const res = await verifyPil(FGL, pil, cmPols, constPols);
-  console.log(res);
   expect(res.length).eq(0);
+
+  // construct the stark parameters
   const starkStruct = {
-    nBits: 10,
-    nBitsExt: 14,
-    nQueries: 32,
+    nBits: 4,
+    nBitsExt: 5,
+    nQueries: 7,
     verificationHashType: "GL",
     steps: [
-      {nBits: 14},
-      {nBits: 9},
-      {nBits: 4}
+      {nBits: 5},
+      {nBits: 3}
     ]
   }
 
+  // prove and verify the stark proof
   const proof = await proveAndVerify(pil, constPols, cmPols, starkStruct);
   let zkIn = proof2zkin(proof.proof);
   zkIn.publics = proof.publics;
@@ -74,12 +77,12 @@ async function run() {
   // generate vk
   const vk = await buildConsttree(pil, constPols, cmPols, starkStruct);
 
-  const circomFile = path.join(__dirname, "../circuits.gl/fibonacci.verifier.circom");
+  const circomFile = path.join(__dirname, "../node_modules/pil-stark/circuits.gl/fibonacci.verifier.circom");
   const verifier = await pil2circom(pil, vk.constRoot, starkStruct)
   await fs.promises.writeFile(circomFile, verifier, "utf8");
 
   const workspace = "/tmp/fib"
-  let circuit = await wasm_tester(circomFile, {O:1, prime: "goldilocks", include: "../circuits.gl", output: workspace});
+  let circuit = await wasm_tester(circomFile, {O:1, prime: "goldilocks", include: "../node_modules/pil-stark/circuits.gl", output: workspace});
   console.log("End comliling..., circuits: ", circuit);
 
   // setup key
@@ -100,13 +103,13 @@ async function run() {
 
   // gen stark info
   const c12StarkStruct = {
-    nBits: 19,
-    nBitsExt: 20,
+    nBits: 16,
+    nBitsExt: 19,
     nQueries: 8,
     verificationHashType: "BN128",
     steps: [
-      {nBits: 20},
-      {nBits: 17},
+      {nBits: 19},
+      {nBits: 15},
       {nBits: 11},
       {nBits: 7},
       {nBits: 4}
@@ -160,12 +163,16 @@ async function run() {
   }
 
   const c12Vk = await buildConsttree(c12Pil, c12ConstPols, c12CmPols, c12StarkStruct);
+  const c12Verifier = await pil2circom(c12Pil, c12Vk.constRoot, c12StarkStruct)
+  let c12CircomFile = path.join(workspace, "c12.verifier.circom");
+  await fs.promises.writeFile(c12CircomFile, c12Verifier, "utf8");
   // verify
 
   const c12Proof = await proveAndVerify(c12Pil, c12ConstPols, c12CmPols, c12StarkStruct);
 
   const c12ZkIn = proof2zkin(c12Proof.proof);
   c12ZkIn.proverAddr = BigInt("0x2FD31EB1BB3f0Ac8C4feBaF1114F42431c1F29E4");
+  c12ZkIn.publics = c12Proof.publics;
 
   let publicFile = path.join(workspace, "c12.public.info.json")
   await fs.promises.writeFile(publicFile, JSONbig.stringify(c12Proof.publics, null, 1), "utf8");
@@ -232,7 +239,6 @@ async function readExecFile(execFile) {
 }
 
 async function buildConsttree(pil, constPols, cmPols, starkStruct) {
-  console.log(constPols)
   const nBits = starkStruct.nBits;
   const nBitsExt = starkStruct.nBitsExt;
   const n = 1 << nBits;
@@ -244,7 +250,14 @@ async function buildConsttree(pil, constPols, cmPols, starkStruct) {
 
   await interpolate(constBuff, pil.nConstants, nBits, constPolsArrayE, nBitsExt );
 
-  let MH = await buildMerkleHash();
+  let MH;
+  if (starkStruct.verificationHashType == "BN128") {
+    MH = await buildMerklehashBN128();
+  } else if (starkStruct.verificationHashType == "GL"){
+    MH = await buildMerkleHashGL();
+  } else {
+    throw new Error("Invalid hash type: " + starkStruct.verificationHashType)
+  }
 
   console.log("Start merkelizing..");
   const constTree = await MH.merkelize(constPolsArrayE, pil.nConstants, nExt);
@@ -276,7 +289,9 @@ async function pil2circom(pil, constRoot, starkStruct) {
 
   let template;
   if (starkStruct.verificationHashType == "GL") {
-    template = await fs.promises.readFile(path.join(__dirname, "..", "circuits.gl", "stark_verifier.circom.ejs"), "utf8");
+    template = await fs.promises.readFile(path.join(__dirname, "../node_modules/pil-stark", "circuits.gl", "stark_verifier.circom.ejs"), "utf8");
+  } else if (starkStruct.verificationHashType == "BN128") {
+    template = await fs.promises.readFile(path.join(__dirname, "../node_modules/pil-stark", "circuits.bn128", "stark_verifier.circom.ejs"), "utf8");
   } else {
     throw new Error("Invalid Hash Type: "+ starkStruct.verificationHashType);
   }
