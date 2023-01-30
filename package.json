@@ -7,8 +7,8 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies" : {
-      "pilcom": "^0.0.17",
-      "pil-stark": "0.0.21"
+      "pilcom": "^0.0.18",
+      "pil-stark": "0.0.44"
   },
   "devDependencies": {
     "chai": "^4.3.6",
