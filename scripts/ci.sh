@@ -65,18 +65,12 @@ circom --r1cs --wasm -p goldilocks ${curdir}/tmp/fibonacci.verifier.circom \
    --O2=full \
    -o ${curdir}/tmp/
 
-fi
 
 ${cmd} src/compressor12/main_compressor12_setup.js \
     -r ${curdir}/tmp/fibonacci.verifier.r1cs \
     -p ${curdir}/tmp/fibonacci.c12.pil \
     -c ${curdir}/tmp/fibonacci.c12.const \
     -e ${curdir}/tmp/fibonacci.c12.exec
-
-${cmd} src/main_genstarkinfo.js \
-    -p ${curdir}/tmp/fibonacci.c12.pil \
-    -s ${curdir}/test/sm_fibonacci/fibonacci.c12.starkstruct.json \
-    -i ${curdir}/tmp/fibonacci.c12.starkinfo.json
 
 ${cmd} src/compressor12/main_compressor12_exec.js \
     -i ${curdir}/tmp/fibonacci.proof.zkin.json \
@@ -85,13 +79,36 @@ ${cmd} src/compressor12/main_compressor12_exec.js \
     -e ${curdir}/tmp/fibonacci.c12.exec \
     -m ${curdir}/tmp/fibonacci.c12.commit
 
+fi
+
 # Note: maybe need to update the nBits in c12.starkstruct.json
+cat > ${curdir}/test/sm_fibonacci/fibonacci.c12.starkstruct.json << EOF
+{
+    "nBits": 18,
+    "nBitsExt": 19,
+    "nQueries": 8,
+    "verificationHashType": "BN128",
+    "steps": [
+        {"nBits": 19},
+        {"nBits": 15},
+        {"nBits": 11},
+        {"nBits": 7},
+        {"nBits": 4}
+    ]
+}
+EOF
+
 ${cmd} src/main_buildconsttree.js \
     -p ${curdir}/tmp/fibonacci.c12.pil \
     -c ${curdir}/tmp/fibonacci.c12.const \
     -s ${curdir}/test/sm_fibonacci/fibonacci.c12.starkstruct.json \
     -t ${curdir}/tmp/fibonacci.c12.consttree \
     -v ${curdir}/tmp/fibonacci.c12.verkey.json
+
+${cmd} src/main_genstarkinfo.js \
+    -p ${curdir}/tmp/fibonacci.c12.pil \
+    -s ${curdir}/test/sm_fibonacci/fibonacci.c12.starkstruct.json \
+    -i ${curdir}/tmp/fibonacci.c12.starkinfo.json
 
 ${cmd} src/main_prover.js \
     -m ${curdir}/tmp/fibonacci.c12.commit \
@@ -110,3 +127,9 @@ ${cmd} src/main_verifier.js \
     -o ${curdir}/tmp/fibonacci.c12.proof.json \
     -b ${curdir}/tmp/fibonacci.c12.public.json \
     -v ${curdir}/tmp/fibonacci.c12.verkey.json
+
+${cmd} src/main_pil2circom.js \
+    -p ${curdir}/tmp/fibonacci.c12.pil \
+    -s ${curdir}/tmp/fibonacci.c12.starkinfo.json \
+    -v ${curdir}/tmp/fibonacci.c12.verkey.json \
+    -o ${curdir}/tmp/fibonacci.c12.verifier.circom
